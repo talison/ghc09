@@ -1,0 +1,105 @@
+This is code for the 2009 Github Contest.
+
+http://contest.github.com
+
+This project was a nice way for me to learn Python.
+
++++ Methodology +++
+
++ Conditional Probability +
+
+My main approach was to try to use conditional probability to suggest
+candidate repos. I spent the first part of the project working on this
+approach.
+
+It's a simple model. I count how many times repo J was watched with
+repo I. Using this model, the probability of watching repo J
+conditioned on watching repo I is:
+
+collocations(J,I)/freq(I)
+
+Calculating this for every collocation does not take terribly long,
+but it uses a lot of memory. Originally I tried pickling the object so
+I could quickly read it in later, but unpickling it took longer than
+recalculating it. Either way, the whole matrix ends up in memory which
+is inefficient.
+
+Ultimately I stored the probabilities in a Tokyo Cabinet B-Tree
+database. The keys were in the form "I,J" and the values were in the
+form "collocations,conditional_probability".
+
+This works much better because whenever I want to find all the repos
+related to repo I, I do a simple range query for all the keys with the
+prefix "I,".
+
+The next step was to actually sort the suggestions that came out of
+the probability model. Sorting on collocation count would have biased
+the suggestions toward popular repos. Sorting on probability alone
+biases low-frequency repos (i.e. repo X is watched by two people, and
+repo Y and repo X is watched by one of those people).
+
+The best results came from log weighting (thanks joestelmach) the
+candidates by collocation count. Then some of the more popular repos
+could bubble up a bit.
+
+Using that strategy alone yielded a score in the 23% range, but lots
+of users had less than 10 suggestions.
+
++ Filling +
+
+I then focused on filling suggestions for users with insufficient
+suggestions. I computed the ancestry of each repo, so that each repo
+had a list of its ancestors (parents, grandparents, etc.)  and
+descendants (children, grandchildren, etc.).
+
+One thing I noticed was that the repos.txt file had a few
+inconsistencies. There were a few forked repos with a date that was
+before the repo they were forked from. This screwed up my lineage
+calculation so I had to go in and hand-fix these entries. The diff
+file is included as repos-fix.diff
+
+For each user with less than 10 suggestions, I add all of the
+ancestors and descendants. If they still have less than 10
+suggestions, I take all of their existing suggestions and use the
+conditional probability database to get more candidates.
+
+If the user still has less than 10 suggestions, I look for similarly
+named repos and add those and anything related to those in the
+probability matrix.
+
+Finally, if there are still not enough candidates, I fall back on the
+top ten repos.
+
+This methodology brought the score up to around 35 or 36%.
+
++ Blending +
+
+I knew from willbailey that adding all unwatched ancestor repos would
+result in a boost. Rather than write my own algorithm, I used
+danielharan's blend_unwatched_sources.rb script
+(http://github.com/danielharan/github_resys/tree/master).
+
+This works best with candidate suggestions of at least 20. I went back
+and generated results files with 20 candidates. danielharan's blending
+then brought my score up to 43%. I found there was a slight boost when
+only using the first 5 unwatched candidates.
+
++++ The Code +++
+
+The code is written in Python. I used a Python 2.6 interpreter.
+
+Tokyo Cabinet must be installed. I used these instructions:
+
+http://michael.susens-schurter.com/tokyotalk/tokyotalk.html
+
+The simplejson module should also be installed.
+
+The code does extensive logging, and some of the data structures
+contain more data than I actually used.
+
+To run:
+
+python ghc.py
+ruby blend_unwatched_sources.rb > results.txt
+
+See LICENSE for the license that governs this code.
